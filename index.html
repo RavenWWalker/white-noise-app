@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="ico" href="favicon.ico">
     <title>Звуки природы - Белый шум</title>
+    <!-- Мета-теги для PWA -->
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Звуки природы">
+    
     <style>
         * {
             margin: 0;
@@ -40,6 +46,16 @@
         .header p {
             font-size: 1.1em;
             opacity: 0.9;
+        }
+
+        .mobile-notice {
+            background: rgba(255, 193, 7, 0.3);
+            border: 1px solid rgba(255, 193, 7, 0.5);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 0.9em;
         }
 
         .controls {
@@ -224,6 +240,25 @@
             font-weight: bold;
         }
 
+        .pwa-install {
+            background: rgba(76, 175, 80, 0.3);
+            border: 1px solid rgba(76, 175, 80, 0.5);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .pwa-install button {
+            background: rgba(76, 175, 80, 0.8);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            color: white;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
         @media (max-width: 768px) {
             .header h1 {
                 font-size: 2em;
@@ -253,6 +288,18 @@
         <div class="header">
             <h1>🌿 Звуки природы</h1>
             <p>Создайте идеальную атмосферу для релаксации и сна</p>
+        </div>
+
+        <div class="mobile-notice" id="mobileNotice" style="display: none;">
+            📱 Для непрерывного воспроизведения на мобильных устройствах:<br>
+            • Не блокируйте экран сразу - подождите 10-20 секунд<br>
+            • Используйте режим "Не беспокоить" вместо блокировки<br>
+            • Добавьте сайт на главный экран для лучшей работы
+        </div>
+
+        <div class="pwa-install" id="pwaInstall" style="display: none;">
+            🏠 Установите приложение на главный экран для лучшей работы в фоне
+            <br><button id="installBtn">Установить приложение</button>
         </div>
 
         <div class="controls">
@@ -352,6 +399,19 @@
         let masterGainNode;
         let timerInterval;
         let timeLeft = 0;
+        let wakeLock = null;
+
+        // Определение мобильного устройства
+        function isMobile() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+
+        // Показать уведомление для мобильных устройств
+        function showMobileNotice() {
+            if (isMobile()) {
+                document.getElementById('mobileNotice').style.display = 'block';
+            }
+        }
 
         // Инициализация аудио контекста
         function initAudioContext() {
@@ -363,11 +423,16 @@
             }
         }
 
-        // Создание аудио из файла
+        // Создание аудио из файла с улучшенными настройками
         function createSound(soundFile) {
             const audio = new Audio(soundFile);
             audio.loop = true;
             audio.crossOrigin = 'anonymous';
+            audio.preload = 'auto';
+            
+            // Настройки для лучшей работы в фоне
+            audio.muted = false;
+            audio.volume = 1;
             
             const source = audioContext.createMediaElementSource(audio);
             const gainNode = audioContext.createGain();
@@ -376,6 +441,27 @@
             gainNode.connect(masterGainNode);
             
             return { audio, gainNode };
+        }
+
+        // Запрос на блокировку экрана (Wake Lock API)
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('Wake lock активирован');
+                } catch (err) {
+                    console.log('Wake lock не поддерживается:', err);
+                }
+            }
+        }
+
+        // Освобождение блокировки экрана
+        function releaseWakeLock() {
+            if (wakeLock) {
+                wakeLock.release();
+                wakeLock = null;
+                console.log('Wake lock деактивирован');
+            }
         }
 
         // Загрузка и кэширование аудио
@@ -436,6 +522,9 @@
             document.querySelectorAll('.timer-btn').forEach(btn => {
                 btn.addEventListener('click', setTimer);
             });
+
+            // Показать уведомление для мобильных
+            showMobileNotice();
         }
 
         // Переключение звука
@@ -451,6 +540,11 @@
                 playBtn.textContent = '▶️ Играть';
                 playBtn.classList.remove('playing');
                 playBtn.classList.remove('error');
+                
+                // Проверяем, есть ли еще активные звуки
+                if (Object.keys(soundNodes).length === 0) {
+                    releaseWakeLock();
+                }
             } else {
                 // Запускаем звук
                 try {
@@ -465,6 +559,11 @@
                         playBtn.textContent = '⏸️ Пауза';
                         playBtn.classList.add('playing');
                         playBtn.classList.remove('error');
+                        
+                        // Запрашиваем блокировку экрана для первого звука
+                        if (Object.keys(soundNodes).length === 1) {
+                            requestWakeLock();
+                        }
                     }).catch(error => {
                         console.error('Ошибка воспроизведения:', error);
                         playBtn.textContent = '❌ Файл не найден';
@@ -525,6 +624,7 @@
                     playBtn.classList.remove('error');
                 }
             });
+            releaseWakeLock();
         }
 
         // Создать случайный микс
@@ -618,6 +718,27 @@
             }, 100);
         }
 
+        // PWA функционал
+        let deferredPrompt;
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            document.getElementById('pwaInstall').style.display = 'block';
+        });
+
+        document.getElementById('installBtn').addEventListener('click', () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        document.getElementById('pwaInstall').style.display = 'none';
+                    }
+                    deferredPrompt = null;
+                });
+            }
+        });
+
         // Инициализация приложения
         document.addEventListener('DOMContentLoaded', () => {
             initInterface();
@@ -628,14 +749,46 @@
             });
         });
 
-        // Обработка видимости страницы для мобильных устройств
+        // Улучшенная обработка видимости страницы
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden && audioContext) {
-                audioContext.suspend();
-            } else if (!document.hidden && audioContext && audioContext.state === 'suspended') {
+            if (document.hidden) {
+                // Страница скрыта - пытаемся сохранить воспроизведение
+                if (audioContext && audioContext.state === 'running') {
+                    // Не приостанавливаем контекст, если есть активные звуки
+                    if (Object.keys(soundNodes).length > 0) {
+                        console.log('Страница скрыта, но звуки продолжают играть');
+                        // Можно добавить дополнительную логику для поддержания воспроизведения
+                    }
+                }
+            } else {
+                // Страница видима - возобновляем контекст если нужно
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            }
+        });
+
+        // Обработка событий страницы для мобильных устройств
+        window.addEventListener('pagehide', (e) => {
+            // Сохраняем состояние при скрытии страницы
+            if (Object.keys(soundNodes).length > 0) {
+                console.log('Страница скрывается, пытаемся сохранить воспроизведение');
+            }
+        });
+
+        window.addEventListener('pageshow', (e) => {
+            // Восстанавливаем состояние при показе страницы
+            if (e.persisted && audioContext) {
                 audioContext.resume();
             }
         });
+
+        // Предотвращение автоматического приостановления аудио
+        setInterval(() => {
+            if (audioContext && audioContext.state === 'suspended' && Object.keys(soundNodes).length > 0) {
+                audioContext.resume();
+            }
+        }, 1000);
     </script>
 </body>
 </html>
